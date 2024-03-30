@@ -24,7 +24,7 @@ Additional resources used:
 # Steps
 ## Prerequisites
 - Ensure you have a Web3 wallet like MetaMask installed for interaction with the blockchain.
-- Have a sufficient balance of ETH on Optimism for transaction fees and participating in the game.
+- Have a sufficient balance of ETH on Base to create a gift for friend.
 
 ## Installation and Setup
 Clone the repository to your local environment. 
