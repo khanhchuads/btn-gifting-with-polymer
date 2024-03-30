@@ -4,33 +4,37 @@ pragma solidity ^0.8.9;
 
 import "./base/UniversalChanIbcApp.sol";
 
-contract XCounterUC is UniversalChanIbcApp {
-    // application specific state
-    uint64 public counter;
-    mapping(uint64 => address) public counterMap;
+contract GiftRefferal is UniversalChanIbcApp {
 
+    enum GIFT_STATUS {
+        CREATE,
+        MINTED,
+        CLAIM,
+        CLAIMED
+    }
+
+    mapping (address => uint) private gifts; // for OP chain to store gift amount value for each receiver
+    mapping (address => uint) private lockedAmount; // for BASE chain to store locked amount value for each receiver who will be received amount as the fee on new chain
+    
     constructor(address _middleware) UniversalChanIbcApp(_middleware) {}
-
-    // application specific logic
-    function resetCounter() internal {
-        counter = 0;
-    }
-
-    function increment() internal {
-        counter++;
-    }
-
-    // IBC logic
 
     /**
      * @dev Sends a packet with the caller's address over the universal channel.
      * @param destPortAddr The address of the destination application.
      * @param channelId The ID of the channel to send the packet to.
      * @param timeoutSeconds The timeout in seconds (relative).
+     * @param _receiver The address of the receiver.
      */
-    function sendUniversalPacket(address destPortAddr, bytes32 channelId, uint64 timeoutSeconds) external {
-        increment();
-        bytes memory payload = abi.encode(msg.sender, counter);
+    function createGift(
+        address destPortAddr,
+        bytes32 channelId,
+        uint64 timeoutSeconds,
+        address _receiver
+    ) external payable {
+        require(msg.value > 0, "Your gift amount must be greater than 0");
+        require(_receiver != msg.sender, "You can't send a gift to yourself");
+        
+        bytes memory payload = abi.encode(msg.sender, msg.value, _receiver, GIFT_STATUS.CREATE);
 
         uint64 timeoutTimestamp = uint64((block.timestamp + timeoutSeconds) * 1000000000);
 
@@ -54,12 +58,22 @@ contract XCounterUC is UniversalChanIbcApp {
     {
         recvedPackets.push(UcPacketWithChannel(channelId, packet));
 
-        (address payload, uint64 c) = abi.decode(packet.appData, (address, uint64));
-        counterMap[c] = payload;
+        (address sender, uint amount, address _receiver, GIFT_STATUS giftStatus) = abi.decode(
+                                                                                        packet.appData, 
+                                                                                        (address, uint, address, GIFT_STATUS)
+                                                                                    );
+        if (giftStatus == GIFT_STATUS.CREATE) {
+            // Do save receiver address for gift
+            gifts[_receiver] = amount;
+            giftStatus = GIFT_STATUS.MINTED;
+        } else if (giftStatus == GIFT_STATUS.CLAIM) {
+            // do transfer amount to receiver
+            require(sender == _receiver, "You are not the receiver of this gift");
+            payable(_receiver).transfer(lockedAmount[_receiver]);
+            giftStatus = GIFT_STATUS.CLAIMED;
+        }
 
-        increment();
-
-        return AckPacket(true, abi.encode(counter));
+        return AckPacket(true, abi.encode(sender, amount, _receiver, giftStatus));
     }
 
     /**
@@ -76,13 +90,6 @@ contract XCounterUC is UniversalChanIbcApp {
         onlyIbcMw
     {
         ackPackets.push(UcAckWithChannel(channelId, packet, ack));
-
-        // decode the counter from the ack packet
-        (uint64 _counter) = abi.decode(ack.data, (uint64));
-
-        if (_counter != counter) {
-            resetCounter();
-        }
     }
 
     /**
