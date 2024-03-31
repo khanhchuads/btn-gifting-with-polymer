@@ -81,6 +81,23 @@ do-it:
     just send-packet optimism
     echo "You've done it!"
 
+gift-init:
+    echo "Setting up the gift chain..."
+    just deploy optimism base
+    just sanity-check
+
+gift-create SOURCE RECEIVER DEPOSIT:
+    echo "Creating a gift"
+    node scripts/_config-packet-channel.js {{SOURCE}} {{RECEIVER}} {{DEPOSIT}}
+
+gift-check-claimable SOURCE:
+    echo "Checking if the gift is claimable"
+    npx hardhat run scripts/check-claimable.js --network {{SOURCE}}
+
+gift-claim SOURCE:
+    echo "Claiming the gift..."
+    node scripts/_config-claim.js {{SOURCE}}
+
 # Clean up the environment by removing the artifacts and cache folders and running the forge clean command
 # Usage: just clean
 clean:

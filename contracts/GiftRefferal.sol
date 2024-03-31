@@ -44,6 +44,34 @@ contract GiftRefferal is UniversalChanIbcApp {
     }
 
     /**
+     * @dev check claimable.
+     */
+    function checkClaimable() external view returns (bool) {
+        return gifts[msg.sender] > 0;
+    }
+
+    /**
+     * @dev Claim gift.
+     * @param destPortAddr The address of the destination application.
+     * @param channelId The ID of the channel to send the packet to.
+     * @param timeoutSeconds The timeout in seconds (relative).
+     */
+    function claimGift(
+        address destPortAddr,
+        bytes32 channelId,
+        uint64 timeoutSeconds
+    ) external {
+        require(gifts[msg.sender] > 0, "You don't have any gift to claim");
+        bytes memory payload = abi.encode(msg.sender, gifts[msg.sender], msg.sender, GIFT_STATUS.CLAIM);
+
+        uint64 timeoutTimestamp = uint64((block.timestamp + timeoutSeconds) * 1000000000);
+
+        IbcUniversalPacketSender(mw).sendUniversalPacket(
+            channelId, IbcUtils.toBytes32(destPortAddr), payload, timeoutTimestamp
+        );
+    }
+
+    /**
      * @dev Packet lifecycle callback that implements packet receipt logic and returns and acknowledgement packet.
      *      MUST be overriden by the inheriting contract.
      *
@@ -70,6 +98,7 @@ contract GiftRefferal is UniversalChanIbcApp {
             // do transfer amount to receiver
             require(sender == _receiver, "You are not the receiver of this gift");
             payable(_receiver).transfer(lockedAmount[_receiver]);
+            lockedAmount[_receiver] = 0; // clear locked amount
             giftStatus = GIFT_STATUS.CLAIMED;
         }
 
@@ -90,6 +119,14 @@ contract GiftRefferal is UniversalChanIbcApp {
         onlyIbcMw
     {
         ackPackets.push(UcAckWithChannel(channelId, packet, ack));
+        (address sender, uint amount, address _receiver, GIFT_STATUS giftStatus) = abi.decode(
+                                                                                        ack.data, 
+                                                                                        (address, uint, address, GIFT_STATUS)
+                                                                                    );
+        if (giftStatus == GIFT_STATUS.CLAIMED) {
+            // do clear receiver address for gift
+            gifts[_receiver] = 0;
+        }
     }
 
     /**
