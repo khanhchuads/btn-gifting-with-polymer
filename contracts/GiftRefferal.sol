@@ -3,20 +3,17 @@
 pragma solidity ^0.8.9;
 
 import "./base/UniversalChanIbcApp.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 contract GiftRefferal is UniversalChanIbcApp {
 
-    enum GIFT_STATUS {
-        CREATE,
-        MINTED,
-        CLAIM,
-        CLAIMED
-    }
+    IERC20 private polyToken;
 
     mapping (address => uint) private gifts; // for OP chain to store gift amount value for each receiver
-    mapping (address => uint) private lockedAmount; // for BASE chain to store locked amount value for each receiver who will be received amount as the fee on new chain
     
-    constructor(address _middleware) UniversalChanIbcApp(_middleware) {}
+    constructor(address _middleware, address polyTokenAddr) UniversalChanIbcApp(_middleware) {
+        polyToken = IERC20(polyTokenAddr);
+    }
 
     /**
      * @dev Sends a packet with the caller's address over the universal channel.
@@ -29,12 +26,13 @@ contract GiftRefferal is UniversalChanIbcApp {
         address destPortAddr,
         bytes32 channelId,
         uint64 timeoutSeconds,
-        address _receiver
+        address _receiver,
+        uint256 amount
     ) external payable {
-        require(msg.value > 0, "Your gift amount must be greater than 0");
         require(_receiver != msg.sender, "You can't send a gift to yourself");
+        require(polyToken.transferFrom(msg.sender, address(this), amount * 10 ** 18), "You have not enough balance to send gift");
         
-        bytes memory payload = abi.encode(msg.sender, msg.value, _receiver, GIFT_STATUS.CREATE);
+        bytes memory payload = abi.encode(msg.sender, amount, 'createGift', _receiver);
 
         uint64 timeoutTimestamp = uint64((block.timestamp + timeoutSeconds) * 1000000000);
 
@@ -62,47 +60,13 @@ contract GiftRefferal is UniversalChanIbcApp {
         uint64 timeoutSeconds
     ) external {
         require(gifts[msg.sender] > 0, "You don't have any gift to claim");
-        bytes memory payload = abi.encode(msg.sender, gifts[msg.sender], msg.sender, GIFT_STATUS.CLAIM);
+        bytes memory payload = abi.encode(msg.sender, gifts[msg.sender], 'claimGift', msg.sender);
 
         uint64 timeoutTimestamp = uint64((block.timestamp + timeoutSeconds) * 1000000000);
 
         IbcUniversalPacketSender(mw).sendUniversalPacket(
             channelId, IbcUtils.toBytes32(destPortAddr), payload, timeoutTimestamp
         );
-    }
-
-    /**
-     * @dev Packet lifecycle callback that implements packet receipt logic and returns and acknowledgement packet.
-     *      MUST be overriden by the inheriting contract.
-     *
-     * @param channelId the ID of the channel (locally) the packet was received on.
-     * @param packet the Universal packet encoded by the source and relayed by the relayer.
-     */
-    function onRecvUniversalPacket(bytes32 channelId, UniversalPacket calldata packet)
-        external
-        override
-        onlyIbcMw
-        returns (AckPacket memory ackPacket)
-    {
-        recvedPackets.push(UcPacketWithChannel(channelId, packet));
-
-        (address sender, uint amount, address _receiver, GIFT_STATUS giftStatus) = abi.decode(
-                                                                                        packet.appData, 
-                                                                                        (address, uint, address, GIFT_STATUS)
-                                                                                    );
-        if (giftStatus == GIFT_STATUS.CREATE) {
-            // Do save receiver address for gift
-            gifts[_receiver] = amount;
-            giftStatus = GIFT_STATUS.MINTED;
-        } else if (giftStatus == GIFT_STATUS.CLAIM) {
-            // do transfer amount to receiver
-            require(sender == _receiver, "You are not the receiver of this gift");
-            payable(_receiver).transfer(lockedAmount[_receiver]);
-            lockedAmount[_receiver] = 0; // clear locked amount
-            giftStatus = GIFT_STATUS.CLAIMED;
-        }
-
-        return AckPacket(true, abi.encode(sender, amount, _receiver, giftStatus));
     }
 
     /**
@@ -118,14 +82,20 @@ contract GiftRefferal is UniversalChanIbcApp {
         override
         onlyIbcMw
     {
-        ackPackets.push(UcAckWithChannel(channelId, packet, ack));
-        (address sender, uint amount, address _receiver, GIFT_STATUS giftStatus) = abi.decode(
-                                                                                        ack.data, 
-                                                                                        (address, uint, address, GIFT_STATUS)
-                                                                                    );
-        if (giftStatus == GIFT_STATUS.CLAIMED) {
-            // do clear receiver address for gift
-            gifts[_receiver] = 0;
+        (address sender, uint256 amount, string memory eventType, address receiver) = abi.decode(packet.appData, (address, uint256, string, address));
+        if (ack.success) {
+            if (keccak256(abi.encodePacked(eventType)) == keccak256(abi.encodePacked('createGift'))) {
+                // create gift successfully
+                gifts[receiver] += amount;
+            } else if (keccak256(abi.encodePacked(eventType)) == keccak256(abi.encodePacked('claimGift'))) {
+                // claim gift successfully
+                gifts[receiver] = 0; // reset
+            }
+        } else {
+            if (keccak256(abi.encodePacked(eventType)) == keccak256(abi.encodePacked('createGift'))) {
+                // create gift ack failed, return assets for user
+                polyToken.transferFrom(address(this), sender, amount * 10 ** 18);
+            }
         }
     }
 

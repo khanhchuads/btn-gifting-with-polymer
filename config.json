@@ -38,5 +38,11 @@
       "timeout": 36000
     }
   },
-  "backup": {}
+  "polyToken": {
+    "optimism": "0x31CE0ACD92E5155FEe8c9560226A16225C2d5972",
+    "base": "0xc787e86B7Ccdf6A51c01ce83C239f7020522cb3A"
+  },
+  "giftRefferal": {
+    "optimism": "0xddDf75c2131f6Df6C4a4d3e7EBec8fe73a5d97F2"
+  }
 }

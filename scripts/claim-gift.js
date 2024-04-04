@@ -8,15 +8,21 @@ async function main() {
     const sendConfig = config.sendUniversalPacket;
 
     const networkName = hre.network.name;
+    const ibcAppAddr = config["giftRefferal"][`${networkName}`];
     // Get the contract type from the config and get the contract
-    const ibcApp = await getIbcApp(networkName);
+    console.log(`🗄️  Fetching IBC app on ${networkName} at address: ${ibcAppAddr}`)
+    const contractType = 'GiftRefferal';
+    const ibcApp = await ethers.getContractAt(
+        `${contractType}`,
+        ibcAppAddr
+    );
 
     // Do logic to prepare the packet
 
     // If the network we are sending on is optimism, we need to use the base port address and vice versa
     const destPortAddr = networkName === "optimism" ?
-      config["sendUniversalPacket"]["base"]["portAddr"] :
-      config["sendUniversalPacket"]["optimism"]["portAddr"];
+                                            config["polyToken"]["base"] :
+                                            config["polyToken"]["optimism"];
     const channelId = sendConfig[`${networkName}`]["channelId"];
     const channelIdBytes = hre.ethers.encodeBytes32String(channelId);
     const timeoutSeconds = sendConfig[`${networkName}`]["timeout"];

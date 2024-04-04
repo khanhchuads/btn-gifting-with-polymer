@@ -83,8 +83,13 @@ do-it:
 
 gift-init:
     echo "Setting up the gift chain..."
-    just deploy optimism base
-    just sanity-check
+    npx hardhat run scripts/deploy-token.js --network optimism
+    npx hardhat run scripts/deploy-token.js --network base
+    npx hardhat run scripts/deploy-gift-refferal.js --network optimism
+
+gift-mint-some-tokens-to-test:
+    echo "Minting some tokens to test..."
+    npx hardhat run scripts/mint-tokens.js --network optimism
 
 gift-create SOURCE RECEIVER DEPOSIT:
     echo "Creating a gift"
@@ -97,6 +102,14 @@ gift-check-claimable SOURCE:
 gift-claim SOURCE:
     echo "Claiming the gift..."
     node scripts/_config-claim.js {{SOURCE}}
+
+gift-test-flow RECEIVER:
+    echo "Testing the gift flow..."
+    just gift-init
+    just gift-mint-some-tokens-to-test
+    just gift-create optimism {{RECEIVER}} 100
+    just gift-check-claimable optimism
+    just gift-claim optimism
 
 # Clean up the environment by removing the artifacts and cache folders and running the forge clean command
 # Usage: just clean
